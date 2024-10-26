@@ -26,20 +26,24 @@ from gi.repository import GLib, Gst
 
 import pyds
 
-PGIE_CLASS_ID_VEHICLE = 0
-PGIE_CLASS_ID_BICYCLE = 1
-PGIE_CLASS_ID_PERSON = 2
-PGIE_CLASS_ID_ROADSIGN = 3
+# Load class labels from the labels.txt file
+def load_labels(file_path="Primary_Detector/labels.txt"):
+    with open(file_path, "r") as f:
+        labels = [line.strip() for line in f.readlines()]
+    return labels
+
+# Assuming labels.txt is in the same directory as the script
+class_labels = load_labels("Primary_Detector/labels.txt")
+
+# Define constants and YOLO handling code
 MUXER_BATCH_TIMEOUT_USEC = 33000
-
-
 
 def bus_call(bus, message, loop):
     t = message.type
     if t == Gst.MessageType.EOS:
         sys.stdout.write("End-of-stream\n")
         loop.quit()
-    elif t==Gst.MessageType.WARNING:
+    elif t == Gst.MessageType.WARNING:
         err, debug = message.parse_warning()
         sys.stderr.write("Warning: %s: %s\n" % (err, debug))
     elif t == Gst.MessageType.ERROR:
@@ -48,91 +52,81 @@ def bus_call(bus, message, loop):
         loop.quit()
     return True
 
-
-
-def osd_sink_pad_buffer_probe(pad,info,u_data):
-    frame_number=0
-    #Intiallizing object counter with 0.
-    obj_counter = {
-        PGIE_CLASS_ID_VEHICLE:0,
-        PGIE_CLASS_ID_PERSON:0,
-        PGIE_CLASS_ID_BICYCLE:0,
-        PGIE_CLASS_ID_ROADSIGN:0
-    }
-    num_rects=0
+def osd_sink_pad_buffer_probe(pad, info, u_data):
+    frame_number = 0
+    # Initialize object counter for all classes
+    obj_counter = {class_id: 0 for class_id in range(len(class_labels))}
+    num_rects = 0
 
     gst_buffer = info.get_buffer()
     if not gst_buffer:
-        print("Unable to get GstBuffer ")
+        print("Unable to get GstBuffer")
         return
 
     # Retrieve batch metadata from the gst_buffer
-    # Note that pyds.gst_buffer_get_nvds_batch_meta() expects the
-    # C address of gst_buffer as input, which is obtained with hash(gst_buffer)
     batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
     l_frame = batch_meta.frame_meta_list
     while l_frame is not None:
         try:
-            # Note that l_frame.data needs a cast to pyds.NvDsFrameMeta
-            # The casting is done by pyds.NvDsFrameMeta.cast()
-            # The casting also keeps ownership of the underlying memory
-            # in the C code, so the Python garbage collector will leave
-            # it alone.
-           frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+            frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
         except StopIteration:
             break
 
-        frame_number=frame_meta.frame_num
+        frame_number = frame_meta.frame_num
         num_rects = frame_meta.num_obj_meta
-        l_obj=frame_meta.obj_meta_list
+        l_obj = frame_meta.obj_meta_list
         while l_obj is not None:
             try:
-                # Casting l_obj.data to pyds.NvDsObjectMeta
-                obj_meta=pyds.NvDsObjectMeta.cast(l_obj.data)
-            except StopIteration:
-                break
-            obj_counter[obj_meta.class_id] += 1
-            try: 
-                l_obj=l_obj.next
+                obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
             except StopIteration:
                 break
 
-        # Acquiring a display meta object. The memory ownership remains in
-        # the C code so downstream plugins can still access it. Otherwise
-        # the garbage collector will claim it when this probe function exits.
-        display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+            # Increment the object count for the detected class
+            obj_counter[obj_meta.class_id] += 1
+
+            # Adding bounding box and class name overlay to display
+            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+            display_meta.num_labels = 1
+            py_nvosd_text_params = display_meta.text_params[0]
+            # Use the class label from labels.txt
+            class_name = class_labels[obj_meta.class_id]
+            py_nvosd_text_params.display_text = class_name
+            py_nvosd_text_params.x_offset = int(obj_meta.rect_params.left)
+
+            
+            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+            try:
+                l_obj = l_obj.next
+            except StopIteration:
+                break
+
+        # Create summary display text with counts of all detected objects
+        display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
         display_meta.num_labels = 1
         py_nvosd_text_params = display_meta.text_params[0]
-        # Setting display text to be shown on screen
-        # Note that the pyds module allocates a buffer for the string, and the
-        # memory will not be claimed by the garbage collector.
-        # Reading the display_text field here will return the C address of the
-        # allocated string. Use pyds.get_string() to get the string content.
-        py_nvosd_text_params.display_text = "Frame Number={} Number of Objects={} Vehicle_count={} Person_count={}".format(frame_number, num_rects, obj_counter[PGIE_CLASS_ID_VEHICLE], obj_counter[PGIE_CLASS_ID_PERSON])
-
-        # Now set the offsets where the string should appear
+        # Display detected class names and their counts
+        detected_classes = [
+            f"{class_labels[class_id]}: {count}" for class_id, count in obj_counter.items() if count > 0
+        ]
+        summary_text = f"Frame {frame_number}, Objects: {num_rects}\n" + ", ".join(detected_classes)
+        py_nvosd_text_params.display_text = summary_text
         py_nvosd_text_params.x_offset = 10
         py_nvosd_text_params.y_offset = 12
-
-        # Font , font-color and font-size
         py_nvosd_text_params.font_params.font_name = "Serif"
         py_nvosd_text_params.font_params.font_size = 10
-        # set(red, green, blue, alpha); set to White
         py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-
-        # Text background color
         py_nvosd_text_params.set_bg_clr = 1
-        # set(red, green, blue, alpha); set to Black
         py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
-        # Using pyds.get_string() to get display_text as string
-        print(pyds.get_string(py_nvosd_text_params.display_text))
         pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
         try:
-            l_frame=l_frame.next
+            l_frame = l_frame.next
         except StopIteration:
             break
-			
-    return Gst.PadProbeReturn.OK	
+
+    return Gst.PadProbeReturn.OK
+
 
 
 def main(args):
