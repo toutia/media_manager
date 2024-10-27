@@ -35,6 +35,18 @@ def load_labels(file_path="Primary_Detector/labels.txt"):
 # Assuming labels.txt is in the same directory as the script
 class_labels = load_labels("Primary_Detector/labels.txt")
 
+
+target_object= 'bottle'
+
+
+
+# Function to change pitch dynamically based on detection status
+def change_pitch(is_found, pitch):
+    if is_found:
+        pitch.set_property("pitch", 1.5)  # Higher pitch when object is found
+    else:
+        pitch.set_property("pitch", 0.8)  # Lower pitch while searching
+
 # Define constants and YOLO handling code
 MUXER_BATCH_TIMEOUT_USEC = 33000
 
@@ -52,7 +64,8 @@ def bus_call(bus, message, loop):
         loop.quit()
     return True
 
-def osd_sink_pad_buffer_probe(pad, info, u_data):
+def osd_sink_pad_buffer_probe(pad, info, pitch):
+
     frame_number = 0
     # Initialize object counter for all classes
     obj_counter = {class_id: 0 for class_id in range(len(class_labels))}
@@ -71,7 +84,7 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
             frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
         except StopIteration:
             break
-
+        target_found = False
         frame_number = frame_meta.frame_num
         num_rects = frame_meta.num_obj_meta
         l_obj = frame_meta.obj_meta_list
@@ -90,10 +103,11 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
             py_nvosd_text_params = display_meta.text_params[0]
             # Use the class label from labels.txt
             class_name = class_labels[obj_meta.class_id]
+            print(class_name)
+            if class_name == target_object:
+                    target_found = True
+                    break
             py_nvosd_text_params.display_text = class_name
-            py_nvosd_text_params.x_offset = int(obj_meta.rect_params.left)
-
-            
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
             try:
@@ -125,6 +139,9 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
         except StopIteration:
             break
 
+        change_pitch(target_found, pitch)
+
+
     return Gst.PadProbeReturn.OK
 
 
@@ -137,6 +154,23 @@ def main(args):
 
     # Standard GStreamer initialization
     Gst.init(None)
+
+
+
+    # Initialize GStreamer
+    Gst.init(None)
+
+    # Create a single audio pipeline with audiotestsrc and pitch elements
+    audio_pipeline = Gst.parse_launch(
+    "audiotestsrc wave=sine freq=440 volume=0.5 ! pitch  name=pitch ! autoaudiosink"
+    )
+
+    # Get the pitch element from the pipeline
+    pitch = audio_pipeline.get_by_name("pitch")
+
+
+
+
 
     # Create gstreamer elements
     # Create Pipeline element that will form a connection of other elements
@@ -267,18 +301,24 @@ def main(args):
     osdsinkpad = nvosd.get_static_pad("sink")
     if not osdsinkpad:
         sys.stderr.write(" Unable to get sink pad of nvosd \n")
+    
 
-    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe, 0)
+    # passing the pitch element here to be able to control it dynamically 
+    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe,pitch)
 
     # start play back and listen to events
     print("Starting pipeline \n")
     pipeline.set_state(Gst.State.PLAYING)
+    audio_pipeline.set_state(Gst.State.PLAYING)
     try:
         loop.run()
     except:
         pass
     # cleanup
-    pipeline.set_state(Gst.State.NULL)
+    finally:
+        pipeline.set_state(Gst.State.NULL)
+        audio_pipeline.set_state(Gst.State.NULL)
+        loop.quit()
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))
