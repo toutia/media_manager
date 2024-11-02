@@ -25,3 +25,10 @@ touti@ubuntu:/opt/nvidia/deepstream/deepstream/sources$ sudo chown -R touti:tout
 ####################################installing deepstream bindings ##########################"
 
 https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/tree/master/bindings
+
+
+##########################   inetract with server ###################################################""
+
+curl -X POST http://localhost:5000/set_target -H "Content-Type: application/json" -d '{"target": "cell phone"}'
+curl -X POST http://localhost:5000/start_pipelines
+curl -X POST http://localhost:5000/stop_pipelines
