@@ -324,6 +324,7 @@ def stop_pipelines():
     pipeline.set_state(Gst.State.NULL)
     audio_pipeline.set_state(Gst.State.NULL)
     loop.quit()
+    pipeline=audio_pipeline=None
     
     return jsonify({"message": "Pipelines stopped."}), 200
 
