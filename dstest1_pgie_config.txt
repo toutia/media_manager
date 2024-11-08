@@ -52,28 +52,6 @@
 # The values in the config file are overridden by values set through GObject
 # properties.
 
-[property]
-gpu-id=0
-net-scale-factor=0.00392156862745098
-onnx-file=Primary_Detector/resnet18_trafficcamnet_pruned.onnx
-model-engine-file=Primary_Detector/model.plan
-labelfile-path=Primary_Detector/labels.txt
-int8-calib-file=Primary_Detector/cal_trt.bin
-batch-size=1
-network-mode=1
-num-detected-classes=4
-interval=0
-gie-unique-id=1
-#scaling-filter=0
-#scaling-compute-hw=0
-cluster-mode=2
-
-[class-attrs-all]
-pre-cluster-threshold=0.2
-topk=20
-nms-iou-threshold=0.5
-
-
 
 [property]
 gpu-id=0

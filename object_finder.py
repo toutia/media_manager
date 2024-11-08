@@ -15,8 +15,8 @@ curl -X POST http://localhost:5000/start_pipelines
 curl -X POST http://localhost:5000/stop_pipelines
 """
 # Define constants and YOLO handling code
-MUXER_BATCH_TIMEOUT_USEC = 33000
-
+MUXER_BATCH_TIMEOUT_USEC = 10000
+output_file_path ='output.mp4'
 def bus_call(bus, message, loop):
     t = message.type
     if t == Gst.MessageType.EOS:
@@ -71,7 +71,7 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
             # Use the class label from labels.txt
             class_name = class_labels[obj_meta.class_id]
 
-            if class_name == target_object:
+            if class_name == target_object :
                     target_found = True
                     break
             py_nvosd_text_params.display_text = class_name
@@ -229,13 +229,28 @@ def start_pipelines():
     # Create OSD to draw on the converted RGBA buffer
     nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
 
-    if not nvosd:
-        sys.stderr.write(" Unable to create nvosd \n")
-
   
-    sink = Gst.ElementFactory.make("nv3dsink", "nv3d-sink")
-    if not sink:
-        sys.stderr.write(" Unable to create egl sink \n")
+    nvvidconv_postosd = Gst.ElementFactory.make("nvvideoconvert", "convertor_postosd")
+    if not nvvidconv_postosd:
+        sys.stderr.write(" Unable to create nvvidconv_postosd \n")
+    
+    # Create a caps filter
+    caps = Gst.ElementFactory.make("capsfilter", "filter")
+    caps.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=I420"))
+ 
+    
+
+    encoder = Gst.ElementFactory.make("nvv4l2h264enc", "encoder")
+    if not encoder:
+        sys.stderr.write(" Unable to create encoder")
+
+    file_sink = Gst.ElementFactory.make("filesink", "file-output")
+    if not file_sink:
+        sys.stderr.write(" Unable to create file sink \n")
+    file_sink.set_property("location", output_file_path)
+    # Set sync = false to avoid late frame drops at the display-sink
+    file_sink.set_property("sync", False)
+
 
     print("Playing cam %s " %"/dev/video0")
     caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1"))
@@ -246,8 +261,8 @@ def start_pipelines():
     streammux.set_property('batch-size', 1)
     streammux.set_property('batched-push-timeout', MUXER_BATCH_TIMEOUT_USEC)
     pgie.set_property('config-file-path', "dstest1_pgie_config.txt")
-    # Set sync = false to avoid late frame drops at the display-sink
-    sink.set_property('sync', False)
+    
+    
 
     print("Adding elements to Pipeline \n")
     pipeline.add(source)
@@ -259,7 +274,10 @@ def start_pipelines():
     pipeline.add(pgie)
     pipeline.add(nvvidconv)
     pipeline.add(nvosd)
-    pipeline.add(sink)
+    pipeline.add(nvvidconv_postosd)
+    pipeline.add(caps)
+    pipeline.add(encoder)
+    pipeline.add(file_sink)
 
     # we link the elements together
     # v4l2src -> nvvideoconvert -> mux -> 
@@ -280,7 +298,14 @@ def start_pipelines():
     streammux.link(pgie)
     pgie.link(nvvidconv)
     nvvidconv.link(nvosd)
-    nvosd.link(sink)
+    if not nvosd.link(nvvidconv_postosd):
+        print('error linking nvvidconv_postosd')
+    if not nvvidconv_postosd.link(caps):
+        print('error linking caps')
+    if not caps.link(encoder):
+        print('error linking encoder')
+    if not encoder.link(file_sink):
+        print('error linking  file sink')
 
     # create an event loop and feed gstreamer bus mesages to it
     loop = GLib.MainLoop()
