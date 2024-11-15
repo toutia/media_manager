@@ -1,0 +1,18 @@
+[Unit]
+Description=Media Manager Service
+After=network.target
+
+[Service]
+ExecStart=python3 /home/touti/dev/media_manager/object_finder.py
+WorkingDirectory=/home/touti/dev/media_manager/
+Restart=always
+User=touti
+
+
+# Logging settings (overwrite log file on each start)
+StandardOutput=file:/home/touti/dev/media_manager/media_manager.log
+StandardError=file:/home/touti/dev/media_manager/media_manager.log
+
+
+[Install]
+WantedBy=multi-user.target
