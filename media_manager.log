@@ -5,4 +5,17 @@ WARNING: This is a development server. Do not use it in a production deployment.
  * Running on http://127.0.0.1:5000
  * Running on http://127.0.0.1:5000
 Press CTRL+C to quit
-t
+127.0.0.1 - - [16/Nov/2024 21:00:16] "POST /set_target HTTP/1.1" 200 -
+Opening in BLOCKING MODE 
+Setting min object dimensions as 16x16 instead of 1x1 to support VIC compute mode.
+0:00:01.519469925 [33m 1076[00m 0xffff882b1720 [36mINFO   [00m [00m             nvinfer gstnvinfer.cpp:684:gst_nvinfer_logger:<primary-inference>[00m NvDsInferContext[UID 1]: Info from NvDsInferContextImpl::deserializeEngineAndBackend() <nvdsinfer_context_impl.cpp:2092> [UID = 1]: deserialized trt engine from :/home/touti/dev/media_manager/Primary_Detector/model_b1_gpu0_fp32.engine
+0:00:01.519611718 [33m 1076[00m 0xffff882b1720 [36mINFO   [00m [00m             nvinfer gstnvinfer.cpp:684:gst_nvinfer_logger:<primary-inference>[00m NvDsInferContext[UID 1]: Info from NvDsInferContextImpl::generateBackendContext() <nvdsinfer_context_impl.cpp:2195> [UID = 1]: Use deserialized engine model: /home/touti/dev/media_manager/Primary_Detector/model_b1_gpu0_fp32.engine
+0:00:01.536269842 [33m 1076[00m 0xffff882b1720 [36mINFO   [00m [00m             nvinfer gstnvinfer_impl.cpp:343:notifyLoadModelStatus:<primary-inference>[00m [UID 1]: Load new model:dstest1_pgie_config.txt sucessfully
+NvMMLiteOpen : Block : BlockType = 4 
+===== NvVideo: NVENC =====
+NvMMLiteBlockCreate : Block : BlockType = 4 
+127.0.0.1 - - [16/Nov/2024 21:00:17] "POST /start_pipelines HTTP/1.1" 200 -
+H264: Profile = 66 Level = 0 
+NVMEDIA: Need to set EMC bandwidth : 846000 
+NvVideo: bBlitMode is set to TRUE 
+127.0.0.1 - - [16/Nov/2024 21:00:43] "POST /stop_pipelines HTTP/1.1" 200 -

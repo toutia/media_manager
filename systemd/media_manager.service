@@ -3,15 +3,17 @@ Description=Media Manager Service
 After=network.target
 
 [Service]
+Environment=XDG_RUNTIME_DIR="/run/user/1000"
+Environment=DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus"
 ExecStart=python3 /home/touti/dev/media_manager/object_finder.py
 WorkingDirectory=/home/touti/dev/media_manager/
-Restart=always
+Restart=on-failure
 User=touti
 
 
 # Logging settings (overwrite log file on each start)
-StandardOutput=file:/home/touti/dev/media_manager/media_manager.log
-StandardError=file:/home/touti/dev/media_manager/media_manager.log
+StandardOutput=truncate:/home/touti/dev/media_manager/media_manager.log
+StandardError=truncate:/home/touti/dev/media_manager/media_manager.log
 
 
 [Install]
