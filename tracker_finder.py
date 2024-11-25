@@ -6,7 +6,7 @@ import gi
 from flask import Flask, request, jsonify
 from threading import Thread
 import pyds
-
+import configparser
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 """
@@ -108,6 +108,49 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
 
         change_pitch(target_found, pitch)
 
+    #past tracking meta data
+    l_user=batch_meta.batch_user_meta_list
+    while l_user is not None:
+        try:
+            # Note that l_user.data needs a cast to pyds.NvDsUserMeta
+            # The casting is done by pyds.NvDsUserMeta.cast()
+            # The casting also keeps ownership of the underlying memory
+            # in the C code, so the Python garbage collector will leave
+            # it alone
+            user_meta=pyds.NvDsUserMeta.cast(l_user.data)
+        except StopIteration:
+            break
+        if(user_meta and user_meta.base_meta.meta_type==pyds.NvDsMetaType.NVDS_TRACKER_PAST_FRAME_META):
+            try:
+                # Note that user_meta.user_meta_data needs a cast to pyds.NvDsTargetMiscDataBatch
+                # The casting is done by pyds.NvDsTargetMiscDataBatch.cast()
+                # The casting also keeps ownership of the underlying memory
+                # in the C code, so the Python garbage collector will leave
+                # it alone
+                pPastDataBatch = pyds.NvDsTargetMiscDataBatch.cast(user_meta.user_meta_data)
+            except StopIteration:
+                break
+            for miscDataStream in pyds.NvDsTargetMiscDataBatch.list(pPastDataBatch):
+                print("streamId=",miscDataStream.streamID)
+                print("surfaceStreamID=",miscDataStream.surfaceStreamID)
+                for miscDataObj in pyds.NvDsTargetMiscDataStream.list(miscDataStream):
+                    print("numobj=",miscDataObj.numObj)
+                    print("uniqueId=",miscDataObj.uniqueId)
+                    print("classId=",miscDataObj.classId)
+                    print("objLabel=",miscDataObj.objLabel)
+                    for miscDataFrame in pyds.NvDsTargetMiscDataObject.list(miscDataObj):
+                        print('frameNum:', miscDataFrame.frameNum)
+                        print('tBbox.left:', miscDataFrame.tBbox.left)
+                        print('tBbox.width:', miscDataFrame.tBbox.width)
+                        print('tBbox.top:', miscDataFrame.tBbox.top)
+                        print('tBbox.right:', miscDataFrame.tBbox.height)
+                        print('confidence:', miscDataFrame.confidence)
+                        print('age:', miscDataFrame.age)
+        try:
+            l_user=l_user.next
+        except StopIteration:
+            break
+
 
     return Gst.PadProbeReturn.OK
 
@@ -132,9 +175,9 @@ app = Flask(__name__)
 # Function to change pitch dynamically based on detection status
 def change_pitch(is_found, pitch):
     if is_found:
-        pitch.set_property("pitch", 1.5)  # Higher pitch when object is found
+        pitch.set_property("pitch", 1.0)  # Higher pitch when object is found
     else:
-        pitch.set_property("pitch", 0.8)  # Lower pitch while searching
+        pitch.set_property("pitch", 0.3)  # Lower pitch while searching
 
 # Define constants and other helper functions...
 # (keep the bus_call, osd_sink_pad_buffer_probe functions unchanged)
@@ -161,7 +204,7 @@ def start_pipelines():
     
     # Create audio pipeline
     audio_pipeline = Gst.parse_launch(
-        "audiotestsrc wave=sine freq=440 volume=0.3 ! pitch name=pitch ! autoaudiosink"
+        "audiotestsrc wave=sine freq=440 volume=0.3 ! pitch name=pitch  pitch=0.3 ! autoaudiosink"
     )
     pitch = audio_pipeline.get_by_name("pitch")
 
@@ -220,6 +263,14 @@ def start_pipelines():
     pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
     if not pgie:
         sys.stderr.write(" Unable to create pgie \n")
+    
+
+    tracker = Gst.ElementFactory.make("nvtracker", "tracker")
+    if not tracker:
+        sys.stderr.write(" Unable to create tracker \n")
+
+
+
 
     # Use convertor to convert from NV12 to RGBA as required by nvosd
     nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
@@ -264,13 +315,37 @@ def start_pipelines():
     print("Playing cam %s " %"/dev/video0")
     caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1"))
     caps_vidconvsrc.set_property('caps', Gst.Caps.from_string("video/x-raw(memory:NVMM)"))
-    source.set_property('device', "/dev/video2")
-    streammux.set_property('width', 1920)
-    streammux.set_property('height', 1080)
+    source.set_property('device', "/dev/video4")
+    streammux.set_property('width', 960)
+    streammux.set_property('height', 960)
     streammux.set_property('batch-size', 1)
     streammux.set_property('batched-push-timeout', MUXER_BATCH_TIMEOUT_USEC)
     pgie.set_property('config-file-path', "dstest1_pgie_config.txt")
     
+
+    #Set properties of tracker
+    config = configparser.ConfigParser()
+    config.read('tracker_config.txt')
+    config.sections()
+
+    print( config)
+
+    for key in config['tracker']:
+        if key == 'tracker-width' :
+            tracker_width = config.getint('tracker', key)
+            tracker.set_property('tracker-width', tracker_width)
+        if key == 'tracker-height' :
+            tracker_height = config.getint('tracker', key)
+            tracker.set_property('tracker-height', tracker_height)
+        if key == 'gpu-id' :
+            tracker_gpu_id = config.getint('tracker', key)
+            tracker.set_property('gpu_id', tracker_gpu_id)
+        if key == 'll-lib-file' :
+            tracker_ll_lib_file = config.get('tracker', key)
+            tracker.set_property('ll-lib-file', tracker_ll_lib_file)
+        if key == 'll-config-file' :
+            tracker_ll_config_file = config.get('tracker', key)
+            tracker.set_property('ll-config-file', tracker_ll_config_file)
     
 
     print("Adding elements to Pipeline \n")
@@ -281,6 +356,7 @@ def start_pipelines():
     pipeline.add(caps_vidconvsrc)
     pipeline.add(streammux)
     pipeline.add(pgie)
+    pipeline.add(tracker)
     pipeline.add(nvvidconv)
     pipeline.add(nvosd)
     # here to default 
@@ -307,7 +383,8 @@ def start_pipelines():
         sys.stderr.write(" Unable to get source pad of caps_vidconvsrc \n")
     srcpad.link(sinkpad)
     streammux.link(pgie)
-    pgie.link(nvvidconv)
+    pgie.link(tracker)
+    tracker.link(nvvidconv)
     nvvidconv.link(nvosd)
     # here to default 
     nvosd.link(sink)

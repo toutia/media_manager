@@ -32,3 +32,17 @@ https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/tree/master/bindings
 curl -X POST http://localhost:5000/set_target -H "Content-Type: application/json" -d '{"target": "cell phone"}'
 curl -X POST http://localhost:5000/start_pipelines
 curl -X POST http://localhost:5000/stop_pipelines
+
+
+#######################################"" realsense d435i############################################
+firmware 5.12   need to be installed 
+jetpack 6.1 
+cuda 12.6
+
+
+######################### to buid gstreamer relasense plugin #####################################
+
+change relasense_meta.cpp remove volatile ...
+https://github.com/WKDSMRT/realsense-gstreamer
+
+##############################
