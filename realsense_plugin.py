@@ -14,6 +14,11 @@ curl -X POST http://localhost:5000/set_target -H "Content-Type: application/json
 curl -X POST http://localhost:5000/start_pipelines
 curl -X POST http://localhost:5000/stop_pipelines
 """
+
+
+STREAM_TYPE = 2
+ALIGN = 0
+IMU_ON = True
 # Define constants and YOLO handling code
 MUXER_BATCH_TIMEOUT_USEC = 10000
 output_file_path ='output.mp4'
@@ -191,6 +196,12 @@ def set_target():
     print(target_object)
     return jsonify({"message": f"Target object set to {target_object}"}), 200
 
+
+
+
+
+
+
 @app.route('/start_pipelines', methods=['POST'])
 def start_pipelines():
     print(target_object )
@@ -212,19 +223,54 @@ def start_pipelines():
 
    # Create gstreamer elements
     # Create Pipeline element that will form a connection of other elements
+
+
+    def demuxer_callback(demuxer, pad):
+        print(f'pad template: {pad.get_property("template").name_template}')
+        if pad.get_property("template").name_template == "color":
+            qc_pad = queue_color.get_static_pad("sink")
+            linked = pad.link(qc_pad)
+            if linked != Gst.PadLinkReturn.OK:
+                print('failed to link demux to color queue')
+        elif pad.get_property("template").name_template == "depth":
+            qd_pad = queue_depth.get_static_pad("sink")
+            linked = pad.link(qd_pad)
+            if linked != Gst.PadLinkReturn.OK:
+                print('failed to link demux to depth queue')
+        elif IMU_ON and pad.get_property("template").name_template == "imu":
+            qi_pad = queue_imu.get_static_pad("sink")
+            linked = pad.link(qi_pad)
+            if linked != Gst.PadLinkReturn.OK:
+                print('failed to link demux to IMU queue')
+
+
+
+
+
     print("Creating Pipeline \n ")
     pipeline = Gst.Pipeline()
-
     if not pipeline:
         sys.stderr.write(" Unable to create Pipeline \n")
 
-    # Source element for reading from the file
-    print("Creating Source \n ")
-    source = Gst.ElementFactory.make("v4l2src", "usb-cam-source")
-    if not source:
-        sys.stderr.write(" Unable to create Source \n")
 
-    caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
+    rssrc = Gst.ElementFactory.make('realsensesrc')
+    rssrc.set_property('stream-type', STREAM_TYPE)
+    rssrc.set_property('align', ALIGN)
+    rssrc.set_property('imu_on', IMU_ON)
+
+    rsdemux = Gst.ElementFactory.make('rsdemux', 'demux')
+    rsdemux.connect('pad-added', demuxer_callback)
+
+    vidconvert_depth = Gst.ElementFactory.make('videoconvert', 'convert-depth')
+    vidsink_depth = Gst.ElementFactory.make('autovideosink', 'sink-depth')
+    queue_color = Gst.ElementFactory.make('queue', 'queue_color')
+    queue_depth = Gst.ElementFactory.make('queue', 'queue_depth')
+    if IMU_ON:
+        queue_imu = Gst.ElementFactory.make('queue', 'queue-imu')
+        sink_imu = Gst.ElementFactory.make('fakesink', 'sink-imu')
+
+
+    caps_v4l2src = Gst.ElementFactory.make("capsfilter", "source_caps")
     if not caps_v4l2src:
         sys.stderr.write(" Unable to create v4l2src capsfilter \n")
 
@@ -314,10 +360,11 @@ def start_pipelines():
     # file_sink.set_property("sync", False)
 
 
-    print("Playing cam %s " %"/dev/video0")
+    print("Playing realsesnse")
     caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1"))
     caps_vidconvsrc.set_property('caps', Gst.Caps.from_string("video/x-raw(memory:NVMM)"))
-    source.set_property('device', "/dev/video2")
+    nvvidconv.set_property('gpu-id', 0)
+
     streammux.set_property('width', 960)
     streammux.set_property('height', 960)
     streammux.set_property('batch-size', 1)
@@ -351,7 +398,17 @@ def start_pipelines():
     
 
     print("Adding elements to Pipeline \n")
-    pipeline.add(source)
+
+    pipeline.add(rssrc)
+    pipeline.add(rsdemux)
+    pipeline.add(queue_color)
+    pipeline.add(vidconvert_depth)
+    pipeline.add(vidsink_depth)
+    pipeline.add(queue_depth)
+    if IMU_ON:
+        pipeline.add(queue_imu)
+        pipeline.add(sink_imu)
+  
     pipeline.add(caps_v4l2src)
     pipeline.add(vidconvsrc)
     pipeline.add(nvvidconvsrc)
@@ -372,10 +429,50 @@ def start_pipelines():
     # v4l2src -> nvvideoconvert -> mux -> 
     # nvinfer -> nvvideoconvert -> nvosd -> video-renderer
     print("Linking elements in the Pipeline \n")
-    source.link(caps_v4l2src)
-    caps_v4l2src.link(vidconvsrc)
-    vidconvsrc.link(nvvidconvsrc)
-    nvvidconvsrc.link(caps_vidconvsrc)
+
+    ret = rssrc.link(rsdemux)
+    if not ret:
+        print('failed to link source to demux')
+
+    
+    if IMU_ON:
+        queue_imu.link(sink_imu)
+
+    ret = queue_depth.link(vidconvert_depth)
+    if not ret:
+        print('failed to link queue_depth to vidconvert')
+
+    ret = vidconvert_depth.link(vidsink_depth)
+    if not ret:
+        print('failed to link depth vidconvert to vidsink')
+
+
+
+
+    ret= queue_color.link(vidconvsrc)
+    print(ret)
+    if not ret  :
+        print('unable to link queue to vidconvsrc')
+
+
+    # ret= caps_v4l2src.link(vidconvsrc)
+    # if not ret  :
+    #     print('unable to link caps_v4l2src to vidconvsrc')
+
+
+
+    ret = vidconvsrc.link(nvvidconvsrc)
+    if not ret  :
+        print('unable to link videoconvert to nvvideoconvert')
+
+
+
+
+
+    ret= nvvidconvsrc.link(caps_vidconvsrc)
+    if not ret  :
+        print('unable to link nvvideoconvert to caps_vidconvsrc')
+    
 
     sinkpad = streammux.request_pad_simple("sink_0")
     if not sinkpad:
@@ -383,7 +480,10 @@ def start_pipelines():
     srcpad = caps_vidconvsrc.get_static_pad("src")
     if not srcpad:
         sys.stderr.write(" Unable to get source pad of caps_vidconvsrc \n")
-    srcpad.link(sinkpad)
+    ret = srcpad.link(sinkpad)
+    if not ret:
+        print(f"Failed to link srcpad to sinkpad: {ret}")
+
     streammux.link(pgie)
     pgie.link(tracker)
     tracker.link(nvvidconv)
