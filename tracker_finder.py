@@ -317,7 +317,7 @@ def start_pipelines():
     print("Playing cam %s " %"/dev/video0")
     caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1"))
     caps_vidconvsrc.set_property('caps', Gst.Caps.from_string("video/x-raw(memory:NVMM)"))
-    source.set_property('device', "/dev/video2")
+    source.set_property('device', "/dev/video4")
     streammux.set_property('width', 960)
     streammux.set_property('height', 960)
     streammux.set_property('batch-size', 1)
