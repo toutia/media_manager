@@ -94,6 +94,10 @@ if IMU_ON:
     queue_imu = Gst.ElementFactory.make('queue', 'queue-imu')
     sink_imu = Gst.ElementFactory.make('fakesink', 'sink-imu')
 
+
+
+
+
 pipeline.add(rssrc)
 pipeline.add(rsdemux)
 pipeline.add(vidconvert_color)
@@ -105,6 +109,8 @@ pipeline.add(queue_depth)
 if IMU_ON:
     pipeline.add(queue_imu)
     pipeline.add(sink_imu)
+
+
 
 ret = rssrc.link(rsdemux)
 if not ret:
