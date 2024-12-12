@@ -9,7 +9,7 @@ import pyds
 import configparser
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
-
+import threading
 import pyrealsense2 as rs
 import numpy as np
 """
@@ -36,6 +36,10 @@ def fetch_rs_frames():
     """
     Fetches color and depth frames from the RealSense camera.
     """
+
+    global depth_buffer
+
+
     frames = rs_pipeline.wait_for_frames()
     color_frame = frames.get_color_frame()
     depth_frame = frames.get_depth_frame()
@@ -46,8 +50,22 @@ def fetch_rs_frames():
     # Convert frames to NumPy arrays
     color_image = np.asanyarray(color_frame.get_data())
     depth_image = np.asanyarray(depth_frame.get_data())
+    
+    # Lock the shared buffer and store depth data
+    with depth_lock:
+        depth_buffer = depth_image  # Update the shared depth buffer with the latest depth data
+
+
 
     return color_image, depth_image
+
+
+
+
+
+# Global depth buffer shared across threads
+depth_buffer = None
+depth_lock = threading.Lock()
 
 def push_rs_frames(appsrc, _):
     """
@@ -56,6 +74,7 @@ def push_rs_frames(appsrc, _):
     color_image, depth_image = fetch_rs_frames()
     if color_image is None:
         return
+    
 
     # Embed depth data as metadata
     depth_data = depth_image.tobytes()
@@ -64,8 +83,7 @@ def push_rs_frames(appsrc, _):
     gst_buffer = Gst.Buffer.new_allocate(None, color_image.nbytes, None)
     gst_buffer.fill(0, color_image.tobytes())
 
-    # # Attach depth data as custom metadata
-    # gst_buffer.add_meta("depth_data", depth_data)
+    
 
     # Push buffer into the pipeline
     appsrc.emit("push-buffer", gst_buffer)
@@ -88,7 +106,7 @@ def bus_call(bus, message, loop):
     return True
 
 def osd_sink_pad_buffer_probe(pad, info, pitch):
-
+    global depth_buffer
     frame_number = 0
     # Initialize object counter for all classes
     obj_counter = {class_id: 0 for class_id in range(len(class_labels))}
@@ -98,9 +116,36 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
     if not gst_buffer:
         print("Unable to get GstBuffer")
         return
+    
+
+    # Fetch and process the latest depth frame corresponding to the current GStreamer pipeline's probe
+    with depth_lock:
+        current_depth = depth_buffer.copy() if depth_buffer is not None else None
+
+    if current_depth is None:
+        print("No depth data available yet.")
+        return Gst.PadProbeReturn.OK
+
+    # Here implement the logic to correlate depth data with the color frame/region of interest
+    # For instance:
+    # - Extract target object regions using object detection
+    # - Map object detection bounding boxes (from osd probe) to pixel indices
+    # - Extract depth at these indices from `current_depth`
+
+    # Log debugging information or fetch depth statistics from a region of interest
+    
+
 
     # Retrieve batch metadata from the gst_buffer
     batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+
+    # Create summary display text with counts of all detected objects
+    display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+    display_meta.num_labels = 1
+    py_nvosd_text_params = display_meta.text_params[0]
+
+
+
     l_frame = batch_meta.frame_meta_list
     while l_frame is not None:
         try:
@@ -108,8 +153,8 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
         except StopIteration:
             break
         target_found = False
-        timestamp= frame_meta.ntp_timestamp
-        print(timestamp)
+        # timestamp= frame_meta.ntp_timestamp
+        # print(timestamp)
         frame_number = frame_meta.frame_num
         num_rects = frame_meta.num_obj_meta
         l_obj = frame_meta.obj_meta_list
@@ -121,17 +166,24 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
 
             # Increment the object count for the detected class
             obj_counter[obj_meta.class_id] += 1
-
-            # Adding bounding box and class name overlay to display
-            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            display_meta.num_labels = 1
-            py_nvosd_text_params = display_meta.text_params[0]
             # Use the class label from labels.txt
             class_name = class_labels[obj_meta.class_id]
 
             if class_name == target_object :
                     target_found = True
-                    break
+                    # Extract bounding box coordinates
+                    left = int(obj_meta.rect_params.left)
+                    top = int(obj_meta.rect_params.top)
+                    width = int(obj_meta.rect_params.width)
+                    height = int(obj_meta.rect_params.height)
+
+                    if current_depth is not None:
+                        # Define ROI based on bounding box and calculate average depth
+                        target_depth_region = current_depth[top:top + height, left:left + width]
+                        average_depth = np.mean(target_depth_region)  # Average depth
+                        print(f"Average depth for target object: {average_depth* 0.0010000000474974513 } meters")
+
+                    break  # Exit
             py_nvosd_text_params.display_text = class_name
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
@@ -140,10 +192,7 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
             except StopIteration:
                 break
 
-        # Create summary display text with counts of all detected objects
-        display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-        display_meta.num_labels = 1
-        py_nvosd_text_params = display_meta.text_params[0]
+       
         # Display detected class names and their counts
         detected_classes = [
             f"{class_labels[class_id]}: {count}" for class_id, count in obj_counter.items() if count > 0
@@ -166,48 +215,48 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
 
         change_pitch(target_found, pitch)
 
-    #past tracking meta data
-    l_user=batch_meta.batch_user_meta_list
-    while l_user is not None:
-        try:
-            # Note that l_user.data needs a cast to pyds.NvDsUserMeta
-            # The casting is done by pyds.NvDsUserMeta.cast()
-            # The casting also keeps ownership of the underlying memory
-            # in the C code, so the Python garbage collector will leave
-            # it alone
-            user_meta=pyds.NvDsUserMeta.cast(l_user.data)
-        except StopIteration:
-            break
-        if(user_meta and user_meta.base_meta.meta_type==pyds.NvDsMetaType.NVDS_TRACKER_PAST_FRAME_META):
-            try:
-                # Note that user_meta.user_meta_data needs a cast to pyds.NvDsTargetMiscDataBatch
-                # The casting is done by pyds.NvDsTargetMiscDataBatch.cast()
-                # The casting also keeps ownership of the underlying memory
-                # in the C code, so the Python garbage collector will leave
-                # it alone
-                pPastDataBatch = pyds.NvDsTargetMiscDataBatch.cast(user_meta.user_meta_data)
-            except StopIteration:
-                break
-            for miscDataStream in pyds.NvDsTargetMiscDataBatch.list(pPastDataBatch):
-                print("streamId=",miscDataStream.streamID)
-                print("surfaceStreamID=",miscDataStream.surfaceStreamID)
-                for miscDataObj in pyds.NvDsTargetMiscDataStream.list(miscDataStream):
-                    print("numobj=",miscDataObj.numObj)
-                    print("uniqueId=",miscDataObj.uniqueId)
-                    print("classId=",miscDataObj.classId)
-                    print("objLabel=",miscDataObj.objLabel)
-                    for miscDataFrame in pyds.NvDsTargetMiscDataObject.list(miscDataObj):
-                        print('frameNum:', miscDataFrame.frameNum)
-                        print('tBbox.left:', miscDataFrame.tBbox.left)
-                        print('tBbox.width:', miscDataFrame.tBbox.width)
-                        print('tBbox.top:', miscDataFrame.tBbox.top)
-                        print('tBbox.right:', miscDataFrame.tBbox.height)
-                        print('confidence:', miscDataFrame.confidence)
-                        print('age:', miscDataFrame.age)
-        try:
-            l_user=l_user.next
-        except StopIteration:
-            break
+    # #past tracking meta data
+    # l_user=batch_meta.batch_user_meta_list
+    # while l_user is not None:
+    #     try:
+    #         # Note that l_user.data needs a cast to pyds.NvDsUserMeta
+    #         # The casting is done by pyds.NvDsUserMeta.cast()
+    #         # The casting also keeps ownership of the underlying memory
+    #         # in the C code, so the Python garbage collector will leave
+    #         # it alone
+    #         user_meta=pyds.NvDsUserMeta.cast(l_user.data)
+    #     except StopIteration:
+    #         break
+    #     if(user_meta and user_meta.base_meta.meta_type==pyds.NvDsMetaType.NVDS_TRACKER_PAST_FRAME_META):
+    #         try:
+    #             # Note that user_meta.user_meta_data needs a cast to pyds.NvDsTargetMiscDataBatch
+    #             # The casting is done by pyds.NvDsTargetMiscDataBatch.cast()
+    #             # The casting also keeps ownership of the underlying memory
+    #             # in the C code, so the Python garbage collector will leave
+    #             # it alone
+    #             pPastDataBatch = pyds.NvDsTargetMiscDataBatch.cast(user_meta.user_meta_data)
+    #         except StopIteration:
+    #             break
+    #         for miscDataStream in pyds.NvDsTargetMiscDataBatch.list(pPastDataBatch):
+    #             print("streamId=",miscDataStream.streamID)
+    #             print("surfaceStreamID=",miscDataStream.surfaceStreamID)
+    #             for miscDataObj in pyds.NvDsTargetMiscDataStream.list(miscDataStream):
+    #                 print("numobj=",miscDataObj.numObj)
+    #                 print("uniqueId=",miscDataObj.uniqueId)
+    #                 print("classId=",miscDataObj.classId)
+    #                 print("objLabel=",miscDataObj.objLabel)
+    #                 for miscDataFrame in pyds.NvDsTargetMiscDataObject.list(miscDataObj):
+    #                     print('frameNum:', miscDataFrame.frameNum)
+    #                     print('tBbox.left:', miscDataFrame.tBbox.left)
+    #                     print('tBbox.width:', miscDataFrame.tBbox.width)
+    #                     print('tBbox.top:', miscDataFrame.tBbox.top)
+    #                     print('tBbox.right:', miscDataFrame.tBbox.height)
+    #                     print('confidence:', miscDataFrame.confidence)
+    #                     print('age:', miscDataFrame.age)
+    #     try:
+    #         l_user=l_user.next
+    #     except StopIteration:
+    #         break
 
 
     return Gst.PadProbeReturn.OK
@@ -345,8 +394,8 @@ def start_pipelines():
     source.set_property("format", Gst.Format.TIME)
 
     nvvidconvsrc.set_property('compute-hw',1)
-    streammux.set_property('width', 1920)  # 1920 is a standard 16:9 full HD resolution
-    streammux.set_property('height', 1080)  # Similarly, for 1080p
+    streammux.set_property('width', 1280)  # 1920 is a standard 16:9 full HD resolution
+    streammux.set_property('height', 720)  # Similarly, for 1080p
     streammux.set_property('batch-size', 1)
     streammux.set_property('batched-push-timeout', MUXER_BATCH_TIMEOUT_USEC)
     pgie.set_property('config-file-path', "dstest1_pgie_config.txt")
