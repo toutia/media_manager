@@ -19,7 +19,7 @@ curl -X POST http://localhost:5000/stop_pipelines
 """
 # Define constants and YOLO handling code
 MUXER_BATCH_TIMEOUT_USEC = 10000
-output_file_path ='output.mp4'
+DEPTH_UNIT= 0.0010000000474974513
 
 # Initialize RealSense pipeline
 rs_pipeline = rs.pipeline()
@@ -105,7 +105,7 @@ def bus_call(bus, message, loop):
         loop.quit()
     return True
 
-def osd_sink_pad_buffer_probe(pad, info, pitch):
+def osd_sink_pad_buffer_probe(pad, info, pitch, volume):
     global depth_buffer
     frame_number = 0
     # Initialize object counter for all classes
@@ -153,6 +153,7 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
         except StopIteration:
             break
         target_found = False
+        average_depth= 6
         # timestamp= frame_meta.ntp_timestamp
         # print(timestamp)
         frame_number = frame_meta.frame_num
@@ -180,8 +181,8 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
                     if current_depth is not None:
                         # Define ROI based on bounding box and calculate average depth
                         target_depth_region = current_depth[top:top + height, left:left + width]
-                        average_depth = np.mean(target_depth_region)  # Average depth
-                        print(f"Average depth for target object: {average_depth* 0.0010000000474974513 } meters")
+                        average_depth = np.mean(target_depth_region)* DEPTH_UNIT  # Average depth
+                        print(f"Average depth for target object: {average_depth } meters")
 
                     break  # Exit
             py_nvosd_text_params.display_text = class_name
@@ -213,7 +214,7 @@ def osd_sink_pad_buffer_probe(pad, info, pitch):
         except StopIteration:
             break
 
-        change_pitch(target_found, pitch)
+        change_pitch(target_found, pitch, volume, average_depth)
 
     # #past tracking meta data
     # l_user=batch_meta.batch_user_meta_list
@@ -275,13 +276,54 @@ loop = GLib.MainLoop()
 
 app = Flask(__name__)
 
+
+def depth_to_volume(average_depth, max_depth=2.0, sensitivity=2.5, min_volume=0.1):
+    """
+    Transform average depth to volume, making it more sensitive to close distances.
+    
+    Args:
+        average_depth (float): The average depth in meters.
+        max_depth (float): The maximum depth in meters that corresponds to zero volume.
+        sensitivity (float): A factor that increases reactivity to close distances.
+        min_volume (float): The minimum volume value to ensure a baseline sound level.
+        
+    Returns:
+        float: A volume value between min_volume and 1.0 (loud).
+    """
+    if average_depth < 0:
+        return min_volume  # Handle invalid depths with minimum volume
+    
+    # Transform depth to a normalized value between 0 (close) and 1 (far)
+    normalized_depth = min(average_depth / max_depth, 1.0)
+    
+    # Apply a sensitivity adjustment (quadratic fall-off)
+    adjusted_depth = normalized_depth ** sensitivity
+    
+    # Invert the normalized depth to get volume
+    volume = 1.0 - adjusted_depth
+    
+    # Ensure the volume is at least the minimum volume
+    return max(min_volume, min(1.0, volume))  # Clamp the volume to [min_volume, 1.0]
+
+
+
+# Example usage
+average_depth = 3.0  # Example depth in meters
+volume = depth_to_volume(average_depth)
+print(f"Average Depth: {average_depth} meters -> Volume: {volume}")
+
+
+
+
 # Function to change pitch dynamically based on detection status
-def change_pitch(is_found, pitch):
+def change_pitch(is_found, pitch, volume, average_depth):
+    print(depth_to_volume(average_depth))
     if is_found:
         pitch.set_property("pitch", 1.0)  # Higher pitch when object is found
+        volume.set_property('volume', depth_to_volume(average_depth))
     else:
         pitch.set_property("pitch", 0.3)  # Lower pitch while searching
-
+        volume.set_property('volume', 0.3)
 # Define constants and other helper functions...
 # (keep the bus_call, osd_sink_pad_buffer_probe functions unchanged)
 
@@ -305,10 +347,10 @@ def start_pipelines():
     
     # Create audio pipeline
     audio_pipeline = Gst.parse_launch(
-        "audiotestsrc wave=sine freq=440 volume=0.3 ! pitch name=pitch  pitch=0.3 ! autoaudiosink"
+        "audiotestsrc  wave=sine freq=440  ! volume name=volume_control volume=0.3 ! pitch name=pitch  pitch=0.3 ! autoaudiosink"
     )
     pitch = audio_pipeline.get_by_name("pitch")
-
+    volume= audio_pipeline.get_by_name("volume_control")
     # Create gstreamer elements
     # Create Pipeline element that will form a connection of other elements
     print("Creating Pipeline \n ")
@@ -468,7 +510,7 @@ def start_pipelines():
     if not osdsinkpad:
         sys.stderr.write(" Unable to get sink pad of nvosd \n")
     # passing the pitch element here to be able to control it dynamically 
-    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe,pitch)
+    osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe,pitch, volume)
     
     
     # Start feeding frames from RealSense
