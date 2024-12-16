@@ -1,3 +1,23 @@
+###################### detect realsense ############################################
+
+./libuvc_installation.sh
+sudo cp /home/touti/dev/librealsense/build/Release/pyrealsense2.cpython-310-aarch64-linux-gnu.so /home/touti/.local/lib/python3.10/site-packages/
+"""
+Python 3.10.12 (main, Nov  6 2024, 20:22:13) [GCC 11.4.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import pyrealsense2 as rs
+>>> rs.pipeline()
+<pyrealsense2.pipeline object at 0xffff8c354670>
+>>> exit()
+
+
+"""
+####################################installing deepstream bindings ##########################"
+
+https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/tree/master/bindings
+
+
+
 
 ###########################"" deepstream-app fix  rtsp lib not found ######################################""
 touti@ubuntu:/opt/nvidia/deepstream/deepstream$ deepstream-app
@@ -22,9 +42,6 @@ App run failed
 touti@ubuntu:/opt/nvidia/deepstream/deepstream/sources$ sudo chown -R touti:touti  deepstream_python_apps
 
 
-####################################installing deepstream bindings ##########################"
-
-https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/tree/master/bindings
 
 
 ##########################   inetract with server ###################################################""
@@ -48,33 +65,4 @@ https://github.com/WKDSMRT/realsense-gstreamer
 ##############################
 
 
-#########################""" install pyrealsesnse2 python bindings ###################################
 
-
-sudo apt update
-sudo apt install git cmake python3 python3-dev python3-pip build-essential libusb-1.0-0-dev libssl-dev libudev-dev pkg-config
-
-
-
-pip install numpy pybind11
-
-
-
-git clone https://github.com/IntelRealSense/librealsense.git
-cd librealsense
-git checkout v2.56.2  # Replace with the desired version
-
-mkdir build && cd build
-cmake .. -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE=$(which python3)
-
-
-make -j$(nproc)
-
-sudo cp /home/touti/dev/librealsense/build/Release/pyrealsense2.cpython-310-aarch64-linux-gnu.so /home/touti/.local/lib/python3.10/site-packages/
-
-
-#If you encounter device access issues, add a udev rule:
-
-
-sudo cp config/99-realsense-libusb.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
