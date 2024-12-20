@@ -10,90 +10,106 @@ import configparser
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 import threading
-import pyrealsense2 as rs
+from rs_pipeline import RsCamera, list_connected_devices
 import numpy as np
+import cv2
 
-from rs_helpers import get_intrinsics, get_spatial_coordinates, generate_spatial_directive
-"""
-curl -X POST http://localhost:5000/set_target -H "Content-Type: application/json" -d '{"target": "cell phone"}'
-curl -X POST http://localhost:5000/start_pipelines
-curl -X POST http://localhost:5000/stop_pipelines
-"""
 # Define constants and YOLO handling code
 MUXER_BATCH_TIMEOUT_USEC = 10000
-DEPTH_UNIT= 0.0010000000474974513
-
-# Initialize RealSense pipeline
-rs_pipeline = rs.pipeline()
-config = rs.config()
-
-# Configure RealSense streams
-config.enable_stream(rs.stream.color, 1280, 720, rs.format.rgb8, 30)
-config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
-
-# Start RealSense pipeline
-pipeline_profile = rs_pipeline.start(config)
-
-camera_intrinsics = get_intrinsics(pipeline_profile)
-
-def fetch_rs_frames():
-    """
-    Fetches color and depth frames from the RealSense camera.
-    """
-
-    global depth_buffer
+file_path="Primary_Detector/labels.txt"
+with open(file_path, "r") as f:
+        class_labels = [line.strip() for line in f.readlines()]
+target_object = 'bottle'
 
 
-    frames = rs_pipeline.wait_for_frames()
-    color_frame = frames.get_color_frame()
-    depth_frame = frames.get_depth_frame()
+#define pipelines 
+pipeline = None
+audio_pipeline = None
+# camera initialization
 
-    if not color_frame or not depth_frame:
-        return None, None
-
-    # Convert frames to NumPy arrays
-    color_image = np.asanyarray(color_frame.get_data())
-    depth_image = np.asanyarray(depth_frame.get_data())
+devices= list_connected_devices()
+cameras={}
+for device in devices:
+    print(device)
+    camera = RsCamera(serial_number= device )
+    cameras[device]=camera
     
-    # Lock the shared buffer and store depth data
-    with depth_lock:
-        depth_buffer = depth_image  # Update the shared depth buffer with the latest depth data
+# DEPTH_UNIT= downward_camera.get_depth_scale()
 
-
-
-    return color_image, depth_image
-
-
-
-
-
+DEPTH_UNIT=0.0010000000474974513
 # Global depth buffer shared across threads
 depth_buffer = None
 depth_lock = threading.Lock()
+# flask app 
+loop = GLib.MainLoop()
+app = Flask(__name__)
 
+import time
 def push_rs_frames(appsrc, _):
     """
     Pushes RealSense frames into the GStreamer pipeline through appsrc.
     """
-    color_image, depth_image = fetch_rs_frames()
-    if color_image is None:
+    
+    
+    color_image1, depth_image1 = cameras['036522072529'].fetch_rs_frames()
+    
+    color_image2, depth_image2 = cameras['042222071132'].fetch_rs_frames()    
+
+    if  color_image1 is None  or  color_image2 is None  :
         return
-    
 
-    # Embed depth data as metadata
-    depth_data = depth_image.tobytes()
 
-    # Convert color image to GStreamer buffer
-    gst_buffer = Gst.Buffer.new_allocate(None, color_image.nbytes, None)
-    gst_buffer.fill(0, color_image.tobytes())
+     # Apply a slight rotation to color_frame2 and depth_frame2
+    h, w, _ = color_image2.shape
+    rotation_matrix = cv2.getRotationMatrix2D((w // 2, h // 2), angle=10, scale=1.0)
+        
+    # Rotate the second color frame with proper interpolation
+    rotated_color2 = cv2.warpAffine(
+        color_image2,
+        rotation_matrix,
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0)  # Black border
+    )
 
-    
+    color_image1_rgb = cv2.cvtColor(color_image1, cv2.COLOR_BGR2RGB)
+    rotated_color2_rgb = cv2.cvtColor(rotated_color2, cv2.COLOR_BGR2RGB)
+
+
+
+    # Combine the color frames vertically
+    combined_color_frame = np.vstack((color_image1_rgb, rotated_color2_rgb))
+
+    # Combine the depth frames vertically
+    rotated_depth2 = cv2.warpAffine(depth_image2, rotation_matrix, (w, h), flags=cv2.INTER_NEAREST)
+    combined_depth_frame = np.vstack((depth_image1, rotated_depth2))
+
+
+    # # # Debugging: Validate combined frame
+    # cv2.imshow('Combined Color Frame', combined_color_frame)
+    # time.sleep(1)
+
+    # Convert combined color frame to GStreamer buffer
+    gst_buffer = Gst.Buffer.new_allocate(None, combined_color_frame.nbytes, None)
+    gst_buffer.fill(0, combined_color_frame.tobytes())
+
+    # Debugging: Log buffer size
+    print(f"Combined frame shape: {combined_color_frame.shape}")
+    print(f"frame shape: {color_image1_rgb.shape}")
+    print(f"frame shape: {color_image1.shape}")
+    print(f"Buffer size: {gst_buffer.get_size()} bytes")
+
+    # Lock the shared buffer and store depth data
+    global depth_buffer
+     # Embed depth data as metadata
+    depth_data = combined_depth_frame.tobytes()
+    with depth_lock:
+        depth_buffer = combined_depth_frame  # Update the shared depth buffer with the latest depth data
 
     # Push buffer into the pipeline
     appsrc.emit("push-buffer", gst_buffer)
     return True
-
-
 
 def bus_call(bus, message, loop):
     t = message.type
@@ -190,10 +206,13 @@ def osd_sink_pad_buffer_probe(pad, info, pitch, volume):
                         # Calculate center coordinates
                         u = left + width // 2
                         v = top + height // 2
-                        spatial_coordinates = get_spatial_coordinates(u, v, average_depth, camera_intrinsics)
-                        x,y,z= spatial_coordinates
-                        description= generate_spatial_directive(x,y,z)
-                        print(description)
+                        spatial_coordinates = downward_camera.get_spatial_coordinates(u, v, average_depth)
+                        print(spatial_coordinates)
+                        # x,y,z= spatial_coordinates
+                        # description= generate_spatial_directive(x,y,z)
+                        # print(description)
+
+                        
 
                     break  # Exit
             py_nvosd_text_params.display_text = class_name
@@ -274,19 +293,10 @@ def osd_sink_pad_buffer_probe(pad, info, pitch, volume):
     return Gst.PadProbeReturn.OK
 
 # Load class labels from the labels.txt file
-def load_labels(file_path="Primary_Detector/labels.txt"):
+def load_labels():
     with open(file_path, "r") as f:
         labels = [line.strip() for line in f.readlines()]
     return labels
-
-class_labels = load_labels("Primary_Detector/labels.txt")
-target_object = 'bottle'
-pipeline = None
-audio_pipeline = None
-loop = GLib.MainLoop()
-
-app = Flask(__name__)
-
 
 def depth_to_volume(average_depth, max_depth=2.0, sensitivity=2.5, min_volume=0.1):
     """
@@ -316,16 +326,6 @@ def depth_to_volume(average_depth, max_depth=2.0, sensitivity=2.5, min_volume=0.
     # Ensure the volume is at least the minimum volume
     return max(min_volume, min(1.0, volume))  # Clamp the volume to [min_volume, 1.0]
 
-
-
-# Example usage
-average_depth = 3.0  # Example depth in meters
-volume = depth_to_volume(average_depth)
-print(f"Average Depth: {average_depth} meters -> Volume: {volume}")
-
-
-
-
 # Function to change pitch dynamically based on detection status
 def change_pitch(is_found, pitch, volume, average_depth):
     print(depth_to_volume(average_depth))
@@ -352,6 +352,10 @@ def start_pipelines():
         pipeline.set_state(Gst.State.PLAYING)
         audio_pipeline.set_state(Gst.State.PLAYING)
         return jsonify({"message": "Pipelines are already running."}), 200
+    
+    # start the cameras 
+    for camera in cameras.values():
+        camera.start()
     
     # Initialize GStreamer
     Gst.init(None)
@@ -440,15 +444,15 @@ def start_pipelines():
         sys.stderr.write(" Unable to create egl sink \n")
     sink.set_property("sync", False)
 
-
-    caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1, width=1280, height=720, format=RGB"))
+    # two  h=720 and w= 1280 vertically superposed give w 1280 and height 1440 
+    caps_v4l2src.set_property('caps', Gst.Caps.from_string("video/x-raw, framerate=30/1, width=1280, height=1440, format=BGR"))
     caps_vidconvsrc.set_property('caps', Gst.Caps.from_string("video/x-raw(memory:NVMM)"))
     source.set_property("is-live", True)
     source.set_property("format", Gst.Format.TIME)
 
     nvvidconvsrc.set_property('compute-hw',1)
     streammux.set_property('width', 1280)  # 1920 is a standard 16:9 full HD resolution
-    streammux.set_property('height', 720)  # Similarly, for 1080p
+    streammux.set_property('height', 1440)  # Similarly, for 1080p
     streammux.set_property('batch-size', 1)
     streammux.set_property('batched-push-timeout', MUXER_BATCH_TIMEOUT_USEC)
     pgie.set_property('config-file-path', "dstest1_pgie_config.txt")
@@ -552,7 +556,8 @@ def stop_pipelines():
     audio_pipeline.set_state(Gst.State.NULL)
     loop.quit()
     pipeline=audio_pipeline=None
-    
+    for camera in cameras.values():
+        camera.stop()
     return jsonify({"message": "Pipelines stopped."}), 200
 
 def main():
