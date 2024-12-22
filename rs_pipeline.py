@@ -77,9 +77,9 @@ class RsCamera:
         """
 
         frames = self.rs_pipeline.wait_for_frames()
-        # Align depth frames to color frames
+        # #Align depth frames to color frames
         # aligned_frames= self.align_to_color.process(frames)
-        # aligned_frames= frames
+    
         color_frame = frames.get_color_frame()
         depth_frame = frames.get_depth_frame()
 
@@ -124,6 +124,46 @@ class RsCamera:
         Z = depth_value
 
         return X, Y, Z
+
+    def generate_spatial_directive(self,x, y, z):
+        """
+        Generates a directive describing the location of an object based on its coordinates.
+        Adjusted for OpenCV coordinates where `y` increases downward.
+        
+        Parameters:
+            x (float): Horizontal position (meters).
+            y (float): Vertical position (meters).
+            z (float): Depth position (meters).
+        
+        Returns:
+            str: A descriptive spatial directive for the object.
+        """
+        # Determine horizontal position
+        if x < -0.5:
+            horizontal = f"{abs(x):.1f} meters to your left"
+        elif x > 0.5:
+            horizontal = f"{x:.1f} meters to your right"
+        else:
+            horizontal = "directly in front of you"
+
+        # Determine vertical position
+        if y > 1.5:  # y > 1.5 means the object is near the floor
+            vertical = "on the floor"
+        elif y > 0.5:  # y between 0.5 and 1.5 means it's at arm level
+            vertical = "at arm level"
+        else:  # y <= 0.5 means it's above eye level
+            vertical = "above eye level"
+
+        # Determine depth position
+        if z < 0.5:
+            depth = "very close to you"
+        elif z < 2.0:
+            depth = f"{z:.1f} meters in front of you"
+        else:
+            depth = f"about {z:.1f} meters away"
+
+        # Combine directives
+        return f"The object is {horizontal}, {vertical}, and {depth}."
 
     def stop(self):
 

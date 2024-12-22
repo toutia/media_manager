@@ -51,9 +51,9 @@ def push_rs_frames(appsrc, _):
     """
     
     
-    color_image1, depth_image1 = cameras['036522072529'].fetch_rs_frames()
+    color_image1, depth_image1 = cameras['042222071132'].fetch_rs_frames()
     
-    color_image2, depth_image2 = cameras['042222071132'].fetch_rs_frames()    
+    color_image2, depth_image2 = cameras['036522072529'].fetch_rs_frames()    
 
     if  color_image1 is None  or  color_image2 is None  :
         return
@@ -74,12 +74,13 @@ def push_rs_frames(appsrc, _):
     )
 
     color_image1_rgb = cv2.cvtColor(color_image1, cv2.COLOR_BGR2RGB)
+
     rotated_color2_rgb = cv2.cvtColor(rotated_color2, cv2.COLOR_BGR2RGB)
 
 
 
     # Combine the color frames vertically
-    combined_color_frame = np.vstack((color_image1_rgb, rotated_color2_rgb))
+    combined_color_frame = np.vstack((color_image1_rgb, color_image2))
 
     # Combine the depth frames vertically
     rotated_depth2 = cv2.warpAffine(depth_image2, rotation_matrix, (w, h), flags=cv2.INTER_NEAREST)
@@ -206,11 +207,11 @@ def osd_sink_pad_buffer_probe(pad, info, pitch, volume):
                         # Calculate center coordinates
                         u = left + width // 2
                         v = top + height // 2
-                        spatial_coordinates = downward_camera.get_spatial_coordinates(u, v, average_depth)
+                        spatial_coordinates = cameras['042222071132'].get_spatial_coordinates(u, v, average_depth)
                         print(spatial_coordinates)
-                        # x,y,z= spatial_coordinates
-                        # description= generate_spatial_directive(x,y,z)
-                        # print(description)
+                        x,y,z= spatial_coordinates
+                        description= cameras['042222071132'].generate_spatial_directive(x,y,z)
+                        print(description)
 
                         
 
