@@ -1,22 +1,22 @@
 
 # media_manager
 
-**media_manager** est une solution logicielle dédiée à la gestion et à l'analyse de flux vidéo en temps réel, intégrant des fonctionnalités avancées telles que la détection d'objets, le suivi d'objets, la gestion de caméras RealSense, et la configuration via des fichiers texte. Ce projet est conçu pour être utilisé dans des environnements de production nécessitant une surveillance vidéo efficace et flexible.
+**media_manager** is a software solution dedicated to real-time video stream management and analysis, featuring advanced capabilities such as object detection, object tracking, RealSense camera management, and configuration via text files. This project is designed for production environments requiring efficient and flexible video monitoring.
 
-## Fonctionnalités principales
+## Key Features
 
-- Détection d'objets en temps réel.
-- Suivi d'objets à travers les images successives.
-- Intégration avec les caméras Intel RealSense pour la capture vidéo et de profondeur.
-- Configuration flexible via fichiers texte et JSON.
-- Intégration avec `systemd` pour une gestion facile du service.
+- Real-time object detection.
+- Object tracking across successive frames.
+- Integration with Intel RealSense cameras for video and depth capture.
+- Flexible configuration via text and JSON files.
+- Integration with `systemd` for easy service management.
 
-## Structure du dépôt
+## Repository Structure
 
-- `Primary_Detector/` : Module principal de détection d'objets.
-- `realsense_examples/` : Exemples d’utilisation des caméras RealSense.
-- `systemd/` : Fichiers pour l’intégration avec systemd.
-- Scripts Python clés :
+- `Primary_Detector/`: Main object detection module.
+- `realsense_examples/`: Examples using RealSense cameras.
+- `systemd/`: Files for integration with systemd.
+- Key Python scripts:
   - `color_depth.py`
   - `detect_camera.py`
   - `distance_objetc_finder.py`
@@ -27,60 +27,60 @@
   - `rs_pipeline.py`
   - `rs_track.py`
   - `tracker_finder.py`
-- Fichiers de configuration :
+- Configuration files:
   - `tracker_config.txt`
   - `tracker_perf.yml`
   - `test.json`
-- Script d’installation de la bibliothèque `libuvc_installation.sh`
-- Fichier de logs : `media_manager.log`
+- `libuvc_installation.sh`: Script to install libuvc library.
+- `media_manager.log`: Log file.
 
-## Prérequis
+## Requirements
 
-- Python 3.6 ou supérieur
-- NVIDIA GPU (recommandé pour traitement accéléré)
-- Caméra Intel RealSense compatible
-- Bibliothèques Python suivantes (exemple d’installation via pip) :
+- Python 3.6 or higher
+- NVIDIA GPU (recommended for accelerated processing)
+- Compatible Intel RealSense camera
+- Python libraries (install via pip):
   ```bash
   pip install pyrealsense2 opencv-python numpy pyyaml
   ```
-- Installation de `libuvc` via le script fourni.
+- `libuvc` installed via provided script.
 
 ## Installation
 
-1. Cloner le dépôt :
+1. Clone the repository:
    ```bash
    git clone https://github.com/toutia/media_manager.git
    cd media_manager
    ```
 
-2. Installer les dépendances Python :
+2. Install Python dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Installer `libuvc` :
+3. Install `libuvc`:
    ```bash
    ./libuvc_installation.sh
    ```
 
-4. Recharger les règles udev pour détecter les caméras :
+4. Reload udev rules to detect cameras:
    ```bash
    sudo udevadm control --reload-rules
    ```
 
-## Utilisation
+## Usage
 
-- Lancer le gestionnaire principal :
+- Start the main manager:
   ```bash
   python3 media_manager.py
   ```
 
-- Pour lancer un script spécifique, par exemple la détection caméra :
+- To run a specific script, e.g., camera detection:
   ```bash
   python3 detect_camera.py
   ```
 
-- Pour gérer le service avec systemd :
+- To manage the service with systemd:
   ```bash
   sudo cp systemd/media_manager.service /etc/systemd/system/
   sudo systemctl daemon-reload
@@ -90,20 +90,20 @@
 
 ## Configuration
 
-Personnalisez les fichiers de configuration avant utilisation :
+Customize configuration files before use:
 
-- `tracker_config.txt` : paramètres du tracker.
-- `tracker_perf.yml` : paramètres des performances du tracker.
-- `test.json` : paramètres pour tests spécifiques.
+- `tracker_config.txt`: tracker parameters.
+- `tracker_perf.yml`: tracker performance settings.
+- `test.json`: specific test parameters.
 
 ## Logs
 
-Les logs du service sont enregistrés dans `media_manager.log`. Consultez ce fichier pour le diagnostic et le suivi.
+Service logs are saved in `media_manager.log`. Check this file for diagnostics and monitoring.
 
 ## Contribution
 
-Les contributions sont les bienvenues. Merci de respecter les bonnes pratiques (pull requests, documentation, tests).
+Contributions are welcome. Please follow best practices for pull requests, documentation, and testing.
 
-## Licence
+## License
 
-Ce projet est sous licence Apache-2.0. Voir le fichier LICENSE pour plus de détails.
+This project is licensed under Apache-2.0. See the LICENSE file for details.
