@@ -1,68 +1,109 @@
-###################### detect realsense ############################################
 
-./libuvc_installation.sh
-sudo cp /home/touti/dev/librealsense/build/Release/pyrealsense2.cpython-310-aarch64-linux-gnu.so /home/touti/.local/lib/python3.10/site-packages/
-"""
-Python 3.10.12 (main, Nov  6 2024, 20:22:13) [GCC 11.4.0] on linux
-Type "help", "copyright", "credits" or "license" for more information.
->>> import pyrealsense2 as rs
->>> rs.pipeline()
-<pyrealsense2.pipeline object at 0xffff8c354670>
->>> exit()
+# media_manager
 
+**media_manager** est une solution logicielle dédiée à la gestion et à l'analyse de flux vidéo en temps réel, intégrant des fonctionnalités avancées telles que la détection d'objets, le suivi d'objets, la gestion de caméras RealSense, et la configuration via des fichiers texte. Ce projet est conçu pour être utilisé dans des environnements de production nécessitant une surveillance vidéo efficace et flexible.
 
-"""
-####################################installing deepstream bindings ##########################"
+## Fonctionnalités principales
 
-https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/tree/master/bindings
+- Détection d'objets en temps réel.
+- Suivi d'objets à travers les images successives.
+- Intégration avec les caméras Intel RealSense pour la capture vidéo et de profondeur.
+- Configuration flexible via fichiers texte et JSON.
+- Intégration avec `systemd` pour une gestion facile du service.
 
+## Structure du dépôt
 
+- `Primary_Detector/` : Module principal de détection d'objets.
+- `realsense_examples/` : Exemples d’utilisation des caméras RealSense.
+- `systemd/` : Fichiers pour l’intégration avec systemd.
+- Scripts Python clés :
+  - `color_depth.py`
+  - `detect_camera.py`
+  - `distance_objetc_finder.py`
+  - `multi_rs.py`
+  - `object_finder.py`
+  - `realsense_plugin.py`
+  - `rs_helpers.py`
+  - `rs_pipeline.py`
+  - `rs_track.py`
+  - `tracker_finder.py`
+- Fichiers de configuration :
+  - `tracker_config.txt`
+  - `tracker_perf.yml`
+  - `test.json`
+- Script d’installation de la bibliothèque `libuvc_installation.sh`
+- Fichier de logs : `media_manager.log`
 
+## Prérequis
 
-###########################"" deepstream-app fix  rtsp lib not found ######################################""
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ deepstream-app
-deepstream-app: error while loading shared libraries: libgstrtspserver-1.0.so.0: cannot open shared object file: No such file or directory
+- Python 3.6 ou supérieur
+- NVIDIA GPU (recommandé pour traitement accéléré)
+- Caméra Intel RealSense compatible
+- Bibliothèques Python suivantes (exemple d’installation via pip) :
+  ```bash
+  pip install pyrealsense2 opencv-python numpy pyyaml
+  ```
+- Installation de `libuvc` via le script fourni.
 
+## Installation
 
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ ldconfig -p | grep libgstrtspserver-1.0.so.0
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ sudo apt update
+1. Cloner le dépôt :
+   ```bash
+   git clone https://github.com/toutia/media_manager.git
+   cd media_manager
+   ```
 
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ sudo apt install libgstrtspserver-1.0-0
+2. Installer les dépendances Python :
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ ldconfig -p | grep libgstrtspserver-1.0.so.0
-	libgstrtspserver-1.0.so.0 (libc6,AArch64) => /lib/aarch64-linux-gnu/libgstrtspserver-1.0.so.0
-touti@ubuntu:/opt/nvidia/deepstream/deepstream$ deepstream-app
-** ERROR: <main:655>: Specify config file with -c option
-Quitting
-App run failed
+3. Installer `libuvc` :
+   ```bash
+   ./libuvc_installation.sh
+   ```
 
+4. Recharger les règles udev pour détecter les caméras :
+   ```bash
+   sudo udevadm control --reload-rules
+   ```
 
-####################################permission issues ####################################
+## Utilisation
 
-touti@ubuntu:/opt/nvidia/deepstream/deepstream/sources$ sudo chown -R touti:touti  deepstream_python_apps
+- Lancer le gestionnaire principal :
+  ```bash
+  python3 media_manager.py
+  ```
 
+- Pour lancer un script spécifique, par exemple la détection caméra :
+  ```bash
+  python3 detect_camera.py
+  ```
 
+- Pour gérer le service avec systemd :
+  ```bash
+  sudo cp systemd/media_manager.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable media_manager
+  sudo systemctl start media_manager
+  ```
 
+## Configuration
 
-##########################   inetract with server ###################################################""
+Personnalisez les fichiers de configuration avant utilisation :
 
-curl -X POST http://localhost:5000/set_target -H "Content-Type: application/json" -d '{"target": "cell phone"}'
-curl -X POST http://localhost:5000/start_pipelines
-curl -X POST http://localhost:5000/stop_pipelines
+- `tracker_config.txt` : paramètres du tracker.
+- `tracker_perf.yml` : paramètres des performances du tracker.
+- `test.json` : paramètres pour tests spécifiques.
 
+## Logs
 
-#######################################"" realsense d435i############################################
-firmware 5.12   need to be installed 
-jetpack 6.1 
-cuda 12.6
+Les logs du service sont enregistrés dans `media_manager.log`. Consultez ce fichier pour le diagnostic et le suivi.
 
+## Contribution
 
-######################### to buid gstreamer relasense plugin #####################################
+Les contributions sont les bienvenues. Merci de respecter les bonnes pratiques (pull requests, documentation, tests).
 
-change relasense_meta.cpp remove volatile ...
-https://github.com/WKDSMRT/realsense-gstreamer
+## Licence
 
-##############################
-
-
-
+Ce projet est sous licence Apache-2.0. Voir le fichier LICENSE pour plus de détails.
